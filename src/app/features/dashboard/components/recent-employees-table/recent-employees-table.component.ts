@@ -102,10 +102,10 @@ export class RecentEmployeesTableComponent {
 
   protected badgeColor(status: EmployeeRecord['status']) {
     switch (status) {
-      case 'Onboarding':
-        return 'warning' as const;
       case 'Remote':
         return 'info' as const;
+      case 'Inactive':
+        return 'warning' as const;
       default:
         return 'success' as const;
     }

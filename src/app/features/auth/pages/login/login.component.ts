@@ -1,8 +1,11 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormControl as FlowbiteFormControl, FormField, Label } from 'flowbite-angular/form';
+import { finalize } from 'rxjs';
 import { APP_SHELL } from '../../../../core/constants/app-shell.constants';
+import { AuthApiService } from '../../../../core/services/auth-api.service';
 import { AuthSessionService } from '../../../../core/services/auth-session.service';
 
 @Component({
@@ -65,21 +68,33 @@ import { AuthSessionService } from '../../../../core/services/auth-session.servi
                 }
               </div>
 
-              <button type="submit" class="btn-primary w-full justify-center !py-3">Sign in to dashboard</button>
+              <button
+                type="submit"
+                class="btn-primary w-full justify-center !py-3"
+                [disabled]="isSubmitting()"
+              >
+                {{ isSubmitting() ? 'Signing in...' : 'Sign in to dashboard' }}
+              </button>
+
+              @if (errorMessage()) {
+                <div class="rounded-2xl border border-danger/20 bg-danger/5 px-4 py-3 text-sm font-medium text-danger">
+                  {{ errorMessage() }}
+                </div>
+              }
             </form>
 
             <div class="mt-8 grid gap-4 rounded-[28px] border border-ui-border bg-ui-surface p-5 sm:grid-cols-3">
               <div>
                 <p class="text-xs font-semibold uppercase tracking-[0.16em] text-ui-muted">Role</p>
-                <p class="mt-2 text-sm font-semibold text-ui-text">HR admin</p>
+                <p class="mt-2 text-sm font-semibold text-ui-text">admin_hr</p>
               </div>
               <div>
                 <p class="text-xs font-semibold uppercase tracking-[0.16em] text-ui-muted">Mode</p>
-                <p class="mt-2 text-sm font-semibold text-ui-text">Dummy auth</p>
+                <p class="mt-2 text-sm font-semibold text-ui-text">Live API</p>
               </div>
               <div>
                 <p class="text-xs font-semibold uppercase tracking-[0.16em] text-ui-muted">Next</p>
-                <p class="mt-2 text-sm font-semibold text-ui-text">Connect API</p>
+                <p class="mt-2 text-sm font-semibold text-ui-text">Dashboard sync</p>
               </div>
             </div>
           </div>
@@ -127,17 +142,20 @@ import { AuthSessionService } from '../../../../core/services/auth-session.servi
 export class LoginComponent {
   private readonly router = inject(Router);
   private readonly activatedRoute = inject(ActivatedRoute);
+  private readonly authApi = inject(AuthApiService);
   private readonly authSession = inject(AuthSessionService);
 
   protected readonly brandName = APP_SHELL.brandName;
   protected readonly subtitle = APP_SHELL.loginSubtitle;
+  protected readonly errorMessage = signal<string | null>(null);
+  protected readonly isSubmitting = signal(false);
 
   protected readonly form = new FormGroup({
-    email: new FormControl('alya@corehr.id', {
+    email: new FormControl('admin.hr@corehr.local', {
       nonNullable: true,
       validators: [Validators.required, Validators.email],
     }),
-    password: new FormControl('password123', {
+    password: new FormControl('Admin123!', {
       nonNullable: true,
       validators: [Validators.required, Validators.minLength(8)],
     }),
@@ -149,9 +167,38 @@ export class LoginComponent {
       return;
     }
 
-    this.authSession.signIn(this.form.getRawValue());
+    this.errorMessage.set(null);
+    this.isSubmitting.set(true);
 
-    const redirectTo = this.activatedRoute.snapshot.queryParamMap.get('redirectTo') || '/dashboard';
-    void this.router.navigateByUrl(redirectTo);
+    this.authApi
+      .login(this.form.getRawValue())
+      .pipe(finalize(() => this.isSubmitting.set(false)))
+      .subscribe({
+        next: (session) => {
+          if (session.user.role !== 'admin_hr') {
+            this.authSession.signOut();
+            this.errorMessage.set('Dashboard admin hanya bisa diakses oleh akun admin_hr.');
+            return;
+          }
+
+          const redirectTo = this.activatedRoute.snapshot.queryParamMap.get('redirectTo') || '/dashboard';
+          void this.router.navigateByUrl(redirectTo);
+        },
+        error: (error: unknown) => {
+          this.errorMessage.set(this.getErrorMessage(error));
+        },
+      });
+  }
+
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof HttpErrorResponse) {
+      const apiMessage = error.error?.message;
+
+      if (typeof apiMessage === 'string' && apiMessage.trim()) {
+        return apiMessage;
+      }
+    }
+
+    return 'Login gagal. Pastikan backend berjalan dan kredensial benar.';
   }
 }

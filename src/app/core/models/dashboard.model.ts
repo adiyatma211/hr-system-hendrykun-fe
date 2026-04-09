@@ -14,7 +14,7 @@ export interface EmployeeRecord {
   role: string;
   department: string;
   location: string;
-  status: 'Active' | 'Onboarding' | 'Remote';
+  status: 'Active' | 'Inactive' | 'Remote';
   startDate: string;
 }
 
@@ -24,4 +24,44 @@ export interface QuickAction {
   actionLabel: string;
   icon: AppIconName;
   kind: 'modal' | 'ghost';
+}
+
+export interface DashboardStatsPayload {
+  totalEmployees: number;
+  activeEmployees: number;
+  totalDepartments: number;
+  totalPositions: number;
+  totalAttendancesToday: number;
+  totalPendingLeaves: number;
+  totalApprovedLeaves: number;
+  totalRejectedLeaves: number;
+}
+
+export interface EmployeeListItem {
+  id: number;
+  employeeCode: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  gender: string | null;
+  address: string | null;
+  hireDate: string | null;
+  isActive: boolean;
+  role: 'admin_hr' | 'employee';
+  departmentId: number | null;
+  departmentName: string | null;
+  positionId: number | null;
+  positionName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaginatedItems<T> {
+  items: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }

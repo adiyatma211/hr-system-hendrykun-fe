@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  inject,
+  signal,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NgpDialogTrigger } from 'ng-primitives/dialog';
 import { Badge } from 'flowbite-angular/badge';
 import {
@@ -13,10 +21,14 @@ import {
   DashboardStat,
   EmployeeRecord,
   QuickAction,
+  DashboardStatsPayload,
+  EmployeeListItem,
 } from '../../../../core/models/dashboard.model';
+import { DashboardApiService } from '../../../../core/services/dashboard-api.service';
 import { AppIconComponent } from '../../../../shared/ui/app-icon/app-icon.component';
 import { RecentEmployeesTableComponent } from '../../components/recent-employees-table/recent-employees-table.component';
 import { StatCardComponent } from '../../components/stat-card/stat-card.component';
+import { catchError, forkJoin, of } from 'rxjs';
 
 @Component({
   selector: 'app-dashboard-home',
@@ -42,38 +54,66 @@ import { StatCardComponent } from '../../components/stat-card/stat-card.componen
           <div class="space-y-4">
             <div class="flex flex-wrap items-center gap-3">
               <span flowbiteBadge color="primary" pill class="!rounded-full !px-3 !py-1.5">Live overview</span>
-              <span flowbiteBadge color="success" pill class="!rounded-full !px-3 !py-1.5">Mock data ready</span>
+              <span
+                flowbiteBadge
+                [color]="loadError() ? 'warning' : 'success'"
+                pill
+                class="!rounded-full !px-3 !py-1.5"
+              >
+                {{ isLoading() ? 'Syncing backend' : loadError() ? 'Connection issue' : 'Backend connected' }}
+              </span>
             </div>
             <div>
               <h2 class="text-3xl font-bold text-ui-text">Welcome back to {{ brandName }}</h2>
               <p class="mt-3 max-w-3xl muted-copy">
-                This dashboard foundation balances a clean enterprise layout with reusable Angular components, ready for HR modules and API integration in the next phase.
+                This dashboard now reads live summary data from the CoreHR backend while keeping the same admin shell and reusable UI components.
               </p>
             </div>
           </div>
 
           <div class="surface-card max-w-sm px-5 py-4">
-            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-ui-muted">Next integration</p>
+            <p class="text-xs font-semibold uppercase tracking-[0.18em] text-ui-muted">Backend target</p>
             <p class="mt-2 text-base font-semibold text-ui-text">
-              Wire authentication, employee list, and attendance endpoints into these starter widgets.
+              Dashboard stats and employee list now come from the live CoreHR API.
             </p>
           </div>
         </div>
       </div>
 
+      @if (loadError()) {
+        <div class="rounded-[28px] border border-warning/20 bg-warning/5 px-5 py-4">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p class="text-sm font-semibold text-ui-text">Backend sync failed</p>
+              <p class="mt-1 text-sm text-ui-muted">{{ loadError() }}</p>
+            </div>
+            <button type="button" class="btn-secondary" (click)="loadDashboard()">Retry</button>
+          </div>
+        </div>
+      }
+
       <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        @for (stat of stats; track stat.label) {
+        @for (stat of stats(); track stat.label) {
           <app-stat-card [stat]="stat" />
         }
       </div>
 
       <div class="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-        <app-recent-employees-table [employees]="employees" />
+        <div class="grid gap-4">
+          @if (employeeListWarning()) {
+            <div class="rounded-[28px] border border-warning/20 bg-warning/5 px-5 py-4">
+              <p class="text-sm font-semibold text-ui-text">Employee list unavailable</p>
+              <p class="mt-1 text-sm text-ui-muted">{{ employeeListWarning() }}</p>
+            </div>
+          }
+
+          <app-recent-employees-table [employees]="employees()" />
+        </div>
 
         <aside class="surface-card p-6">
           <div class="mb-6">
             <h2 class="text-xl font-bold text-ui-text">Quick actions</h2>
-            <p class="mt-1 muted-copy">Small shortcuts that will later connect to admin workflows and HR tools.</p>
+            <p class="mt-1 muted-copy">Small shortcuts while the admin dashboard starts using live CoreHR data.</p>
           </div>
 
           <div class="space-y-3">
@@ -149,71 +189,22 @@ import { StatCardComponent } from '../../components/stat-card/stat-card.componen
   `,
 })
 export class DashboardHomeComponent {
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly dashboardApi = inject(DashboardApiService);
+  private readonly dateFormatter = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: '2-digit',
+    year: 'numeric',
+  });
+
   protected readonly brandName = APP_SHELL.brandName;
+  protected readonly isLoading = signal(true);
+  protected readonly loadError = signal<string | null>(null);
+  protected readonly employeeListWarning = signal<string | null>(null);
 
-  protected readonly stats: DashboardStat[] = [
-    { label: 'Total Employees', value: '248', delta: '+12 this month', accent: 'blue', icon: 'employees' },
-    { label: 'Present Today', value: '231', delta: '93% attendance rate', accent: 'green', icon: 'attendance' },
-    { label: 'Leave Requests', value: '14', delta: '5 need review today', accent: 'gold', icon: 'leave' },
-    { label: 'Payroll Processed', value: '96%', delta: 'April cycle on track', accent: 'info', icon: 'payroll' },
-  ];
+  protected readonly stats = signal<DashboardStat[]>(this.buildLoadingStats());
 
-  protected readonly employees: EmployeeRecord[] = [
-    {
-      id: 1,
-      name: 'Nadia Permata',
-      role: 'Senior HR Generalist',
-      department: 'People Operations',
-      location: 'Jakarta HQ',
-      status: 'Active',
-      startDate: 'Apr 03, 2026',
-    },
-    {
-      id: 2,
-      name: 'Rizky Mahendra',
-      role: 'Compensation Analyst',
-      department: 'Payroll',
-      location: 'Bandung',
-      status: 'Remote',
-      startDate: 'Mar 27, 2026',
-    },
-    {
-      id: 3,
-      name: 'Dinda Prasetyo',
-      role: 'Talent Acquisition Specialist',
-      department: 'Recruitment',
-      location: 'Surabaya',
-      status: 'Onboarding',
-      startDate: 'Mar 18, 2026',
-    },
-    {
-      id: 4,
-      name: 'Kevin Aditya',
-      role: 'HRIS Coordinator',
-      department: 'HRIS',
-      location: 'Jakarta HQ',
-      status: 'Active',
-      startDate: 'Mar 11, 2026',
-    },
-    {
-      id: 5,
-      name: 'Maya Azzahra',
-      role: 'Learning and Development Lead',
-      department: 'L&D',
-      location: 'Yogyakarta',
-      status: 'Remote',
-      startDate: 'Feb 24, 2026',
-    },
-    {
-      id: 6,
-      name: 'Bagas Wicaksono',
-      role: 'Industrial Relations Officer',
-      department: 'Compliance',
-      location: 'Semarang',
-      status: 'Active',
-      startDate: 'Feb 09, 2026',
-    },
-  ];
+  protected readonly employees = signal<EmployeeRecord[]>([]);
 
   protected readonly quickActions: QuickAction[] = [
     {
@@ -238,4 +229,118 @@ export class DashboardHomeComponent {
       kind: 'ghost',
     },
   ];
+
+  constructor() {
+    this.loadDashboard();
+  }
+
+  protected loadDashboard(): void {
+    this.isLoading.set(true);
+    this.loadError.set(null);
+    this.employeeListWarning.set(null);
+
+    forkJoin({
+      stats: this.dashboardApi.getStats(),
+      employees: this.dashboardApi.getRecentEmployees().pipe(
+        catchError((error: unknown) => {
+          this.employeeListWarning.set(this.getErrorMessage(error));
+          return of([]);
+        }),
+      ),
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: ({ stats, employees }) => {
+          this.stats.set(this.mapStats(stats));
+          this.employees.set(employees.map((employee) => this.mapEmployee(employee)));
+          this.isLoading.set(false);
+        },
+        error: (error: unknown) => {
+          this.stats.set(this.buildLoadingStats('Unavailable'));
+          this.employees.set([]);
+          this.loadError.set(this.getErrorMessage(error));
+          this.isLoading.set(false);
+        },
+      });
+  }
+
+  private buildLoadingStats(value = '...'): DashboardStat[] {
+    return [
+      { label: 'Total Employees', value, delta: 'Waiting for backend sync', accent: 'blue', icon: 'employees' },
+      { label: 'Present Today', value, delta: 'Attendance summary will appear here', accent: 'green', icon: 'attendance' },
+      { label: 'Pending Leaves', value, delta: 'Leave request review count will appear here', accent: 'gold', icon: 'leave' },
+      { label: 'Departments', value, delta: 'Department and position totals will appear here', accent: 'info', icon: 'briefcase' },
+    ];
+  }
+
+  private mapStats(stats: DashboardStatsPayload): DashboardStat[] {
+    return [
+      {
+        label: 'Total Employees',
+        value: String(stats.totalEmployees),
+        delta: `${stats.activeEmployees} active employees`,
+        accent: 'blue',
+        icon: 'employees',
+      },
+      {
+        label: 'Present Today',
+        value: String(stats.totalAttendancesToday),
+        delta: `${stats.totalApprovedLeaves} approved leaves`,
+        accent: 'green',
+        icon: 'attendance',
+      },
+      {
+        label: 'Pending Leaves',
+        value: String(stats.totalPendingLeaves),
+        delta: `${stats.totalRejectedLeaves} rejected requests`,
+        accent: 'gold',
+        icon: 'leave',
+      },
+      {
+        label: 'Departments',
+        value: String(stats.totalDepartments),
+        delta: `${stats.totalPositions} tracked positions`,
+        accent: 'info',
+        icon: 'briefcase',
+      },
+    ];
+  }
+
+  private mapEmployee(employee: EmployeeListItem): EmployeeRecord {
+    return {
+      id: employee.id,
+      name: employee.fullName,
+      role: employee.positionName ?? this.formatRole(employee.role),
+      department: employee.departmentName ?? 'Unassigned',
+      location: employee.address ?? 'Not provided',
+      status: employee.isActive ? 'Active' : 'Inactive',
+      startDate: this.formatDate(employee.hireDate),
+    };
+  }
+
+  private formatDate(value: string | null): string {
+    if (!value) {
+      return 'Not set';
+    }
+
+    const parsedDate = new Date(value);
+
+    return Number.isNaN(parsedDate.getTime()) ? value : this.dateFormatter.format(parsedDate);
+  }
+
+  private formatRole(role: EmployeeListItem['role']): string {
+    return role === 'admin_hr' ? 'HR Administrator' : 'Employee';
+  }
+
+  private getErrorMessage(error: unknown): string {
+    if (error instanceof HttpErrorResponse) {
+      const apiMessage = error.error?.message;
+
+      if (typeof apiMessage === 'string' && apiMessage.trim()) {
+        return apiMessage;
+      }
+    }
+
+    return 'Backend belum merespons atau konfigurasi API belum sesuai.';
+  }
 }

@@ -1,46 +1,63 @@
 import { Injectable, computed, signal } from '@angular/core';
-import { LoginCredentials, UserProfile } from '../models/auth.model';
+import {
+  AuthenticatedUser,
+  AuthSessionSnapshot,
+  UserProfile,
+} from '../models/auth.model';
 import { getInitials } from '../../shared/utils/string.utils';
 
 @Injectable({ providedIn: 'root' })
 export class AuthSessionService {
   private readonly storageKey = 'corehr.admin.session';
-  private readonly userState = signal<UserProfile | null>(this.restoreSession());
+  private readonly sessionState = signal<AuthSessionSnapshot | null>(this.restoreSession());
 
-  readonly user = computed(() => this.userState());
-  readonly isAuthenticated = computed(() => this.userState() !== null);
+  readonly user = computed(() => {
+    const authenticatedUser = this.sessionState()?.user;
 
-  signIn(credentials: LoginCredentials): void {
-    const userProfile: UserProfile = {
-      name: 'Alya Prameswari',
-      email: credentials.email,
-      role: 'HR Operations Lead',
-      initials: getInitials('Alya Prameswari'),
-    };
+    return authenticatedUser ? this.toUserProfile(authenticatedUser) : null;
+  });
+  readonly authenticatedUser = computed(() => this.sessionState()?.user ?? null);
+  readonly isAuthenticated = computed(() => this.sessionState() !== null);
 
-    this.userState.set(userProfile);
-    this.persistSession(userProfile);
+  setSession(accessToken: string, user: AuthenticatedUser): void {
+    const session: AuthSessionSnapshot = { accessToken, user };
+    this.sessionState.set(session);
+    this.persistSession(session);
   }
 
   signOut(): void {
-    this.userState.set(null);
+    this.sessionState.set(null);
     this.clearSession();
   }
 
-  private restoreSession(): UserProfile | null {
+  updateUser(user: AuthenticatedUser): void {
+    const currentSession = this.sessionState();
+
+    if (!currentSession) {
+      return;
+    }
+
+    this.setSession(currentSession.accessToken, user);
+  }
+
+  getAccessToken(): string | null {
+    return this.sessionState()?.accessToken ?? null;
+  }
+
+  private restoreSession(): AuthSessionSnapshot | null {
     try {
       const rawSession = localStorage.getItem(this.storageKey);
-      return rawSession ? (JSON.parse(rawSession) as UserProfile) : null;
+      return rawSession ? (JSON.parse(rawSession) as AuthSessionSnapshot) : null;
     } catch {
       return null;
     }
   }
 
-  private persistSession(user: UserProfile): void {
+  private persistSession(session: AuthSessionSnapshot): void {
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(user));
+      localStorage.setItem(this.storageKey, JSON.stringify(session));
     } catch {
-      // Ignore storage failures for the dummy session.
+      // Ignore storage failures while persisting the session snapshot.
     }
   }
 
@@ -48,7 +65,20 @@ export class AuthSessionService {
     try {
       localStorage.removeItem(this.storageKey);
     } catch {
-      // Ignore storage failures for the dummy session.
+      // Ignore storage failures while clearing the session snapshot.
     }
+  }
+
+  private toUserProfile(user: AuthenticatedUser): UserProfile {
+    return {
+      name: user.fullName,
+      email: user.email,
+      role: user.positionName ?? this.formatRole(user.role),
+      initials: getInitials(user.fullName),
+    };
+  }
+
+  private formatRole(role: AuthenticatedUser['role']): string {
+    return role === 'admin_hr' ? 'HR Administrator' : 'Employee';
   }
 }
