@@ -57,6 +57,15 @@ import { AppIconComponent } from '../../shared/ui/app-icon/app-icon.component';
         }
       </nav>
 
+      <button
+        type="button"
+        class="mt-6 inline-flex w-full items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/6 px-4 py-3.5 text-sm font-semibold text-white transition hover:border-danger/30 hover:bg-danger/12"
+        (click)="signOut.emit()"
+      >
+        <app-icon name="logout" iconClass="h-5 w-5" />
+        Logout
+      </button>
+
       <div class="mt-8 rounded-3xl border border-brand-gold/20 bg-brand-gold/10 p-4 xl:p-5">
         <p class="text-xs font-semibold uppercase tracking-[0.18em] text-brand-gold">Foundation phase</p>
         <p class="mt-3 text-sm leading-6 text-slate-200">
@@ -71,4 +80,5 @@ export class SidebarComponent {
   readonly user = input<UserProfile | null>(null);
 
   readonly navigate = output<void>();
+  readonly signOut = output<void>();
 }

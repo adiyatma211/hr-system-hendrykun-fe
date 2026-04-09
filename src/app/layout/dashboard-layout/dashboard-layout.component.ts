@@ -29,7 +29,12 @@ import { TopbarComponent } from '../topbar/topbar.component';
         class="fixed inset-y-0 left-0 z-40 w-[18.5rem] -translate-x-full transition duration-300 sm:w-80 lg:translate-x-0 xl:w-[21rem] 2xl:w-[22.5rem]"
         [class.translate-x-0]="sidebarOpen()"
       >
-        <app-sidebar [items]="navigationItems" [user]="user()" (navigate)="closeSidebar()" />
+        <app-sidebar
+          [items]="navigationItems"
+          [user]="user()"
+          (navigate)="closeSidebar()"
+          (signOut)="signOut()"
+        />
       </div>
 
       <div class="lg:pl-[18.5rem] xl:pl-[21rem] 2xl:pl-[22.5rem]">
