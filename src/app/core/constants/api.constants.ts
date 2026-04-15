@@ -1,1 +1,1 @@
-export const API_BASE_URL = 'https://hris.sentosakutech.com/api';
+export const API_BASE_URL = 'http://hris.sentosakutech.com/api';
